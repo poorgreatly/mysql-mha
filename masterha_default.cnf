@@ -1,0 +1,12 @@
+[server default]
+user=root
+password=a3jiushia3
+ssh_user=root
+repl_user=repl
+repl_password=repl
+ping_interval=1
+master_ip_failover_script="/etc/mha/scripts/master_ip_failover"
+master_ip_online_change_script="/etc/mha/scripts/master_ip_online_change"
+#shutdown_script=/etc/mha/scripts/power_manager
+report_script="/etc/mha/scripts/send_report"
+
