@@ -1,0 +1,214 @@
+1.    MHA配置文件参数
+Parameter Name Required? Parameter Scope Default Value
+hostname Yes Local Only -
+ip No Local Only gethostbyname($hostname)
+port No Local/App/Global 3306
+ssh_host No Local Only same as hostname
+ssh_ip No Local Only gethostbyname($ssh_host)
+ssh_port No Local/App/Global 22
+ssh_connection_timeout No Local/App/Global 5
+ssh_options No Local/App/Global ""(empty string)
+candidate_master No Local Only 0
+no_master No Local Only 0
+ignore_fail No Local Only 0
+skip_init_ssh_check No Local Only 0
+skip_reset_slave No Local/App/Global 0
+user No Local/App/Global root
+password No Local/App/Global ""(empty string)
+repl_user No Local/App/Global Master_User value from SHOW SLAVE STATUS
+repl_password No Local/App/Global - (current replication password)
+disable_log_bin No Local/App/Global 0
+master_pid_file No Local/App/Global ""(empty string)
+ssh_user No Local/App/Global current OS user
+remote_workdir No Local/App/Global /var/tmp
+master_binlog_dir No Local/App/Global /var/lib/mysql
+log_level No App/Global info
+manager_workdir No App /var/tmp
+manager_log No App STDERR
+check_repl_delay No App/Global 1
+check_repl_filter No App/Global 1
+latest_priority No App/Global 1
+multi_tier_slave No App/Global 0
+ping_interval No App/Global 3
+ping_type No App/Global SELECT
+secondary_check_script No App/Global null
+master_ip_failover_script No App/Global null
+master_ip_online_change_script No App/Global null
+shutdown_script No App/Global null
+report_script No App/Global null
+init_conf_load_script No App/Global null
+Local Scope: 适用于单个server范围的参数。局部作用域参数需要在  application configuration 文件里面的[server_xxx]块下面进行设置。
+App Scope:用于每组{master, slaves}的参数。这些参数需要在application configuration文件的[server_default] 块下面进行设置。
+Global Scope: 用于所有{master, slaves}组的参数。只有在使用单个manager服务器管理多组{master, slaves}时，全局范围的参数菜有用。这些参数需要在global configuration 文件中设置。
+1.1   hostname
+MySQL服务器的Hostname 或者 IP 地址。这个参数是强制性的，在applicationconfiguration文件中的[server_xxx]块下必须配置。
+1.2   ip
+MySQL服务器的IP地址。默认值是gethostbyname($hostname).。MHA Manager 和 MHA Node 在内部使用这个IP地址通过MYSQL和SSH连接。通常不需要配置这个参数，因为会自动通过hostname参数解决。
+1.3    port
+MySQL服务器的端口号。默认是3306。MHA通过IP地址和端口连接MySQL服务器。
+1.4    ssh_host
+（从0.53开始支持）SSH使用的MySQL服务器的Hostname 或 IP 地址。当使用多VLAN配置的时候，这个参数（以及ssh_port参数）是有用的。默认和hostname一致。
+1.5    ssh_ip
+（从0.53开始支持）通过SSH使用的MySQL服务器的IP地址。默认值是 gethostbyname($ssh_host)。
+1.6    ssh_port
+（从0.53开始支持）通过SSH连接的MySQL服务器的端口号。默认是22。
+1.7   ssh_connection_timeout
+（从0.54开始支持）默认是5秒。在添加这个参数之前，超时时间是固定的，只能在代码中更改。
+1.8    ssh_options
+（从0.53开始支持）SSH命令行的额外选项。
+1.9   candidate_master
+slaves可能会使用不同类型的机器，需要提升最可靠的机器做为new master。（比如：提升RAID1+0的slave，而不是RAID0的slaves）。
+通过设置candidate_master为1，只要该服务器符合成为new master的条件，该服务器会优先成为master（比如：开启binlog，延迟不明显，等等）所以candidate_master=1不代表指定的host在current master挂掉后总会成为new master，只是用于设置优先级。
+如果在多台服务器上设置了candidate_master=1，优先级根据block名称（[server_xxx]）的顺序决定。[server_1] 优先级高于[server_2]。
+1.10    no_master
+在目标服务器上设置no_master=1，该服务器不会成为new master。如果有一些服务器不应该成为new master，那么该参数是有用的。比如，如果在不可靠的机器（RAID0）上运行了salve，或者在远程数据中心运行了slave，那可能需要设置no_master=1。如果没有slave可以成为new master，MHA会退出，并且不会进行监控或故障转移。
+1.11    ignore_fail
+默认情况下，如果任意slave运行出错了（通过SSH不能连接MySQL，SQL线程出错停止了等待），MHA Manager就不会进行故障转移。但是一些情况下，如果特定的slave服务器运行出错，还是希望继续故障转移，那么可以在指定的服务器上设置ignore_fail=1，就算这些服务器出错，MHA还是会继续故障转移。默认情况下，该参数值为0。
+1.12   skip_init_ssh_check
+在启动初始化时跳过SSH连接。
+1.13   skip_reset_slave
+（从0.56开始支持）master 转移之后跳过执行RESET SLAVE (ALL) 。
+1.14    user
+连接MySQL服务器的管理账号。该参数应该为root，因为会执行一些管理命令，比如STOP SLAVE，CHANGE MASTER，RESET SLAVE。默认为root。
+1.15    password
+上述”user”用户的MySQL密码。默认为空。
+1.16    repl_user
+在每台slave上执行CHANGE MASTER TO master_user ..时使用的复制用户名。该用户在master上需要有REPLICATIONSLAVE 权限。默认情况下，使用的是new master（当前还是slave）上SHOW SLAVE STATUS 中 Master_User 这一列的值。
+1.17   repl_password
+上述"repl_user"用户的MySQL密码。默认情况下，是当前replication密码。如果运行onlinemaster switch并且指定了--orig_master_is_new_slave （意味着当前master会做为new master的slave）参数，如果不指定repl_password开启slave就会失败，因为在当前master上replication密码默认为空（尽管在其他slaves上设置了replication密码，但是MHA在当前master上执行change master时不指定replication 密码）。
+1.18   disable_log_bin
+该参数启用时，当在slaves上应用差异relay logs时，slaves不产生二进制日志。MHA会将 --disable-log-bin 传给mysqlbinlog命令。
+1.19   master_pid_file
+设置master的pid文件。在单个服务器上运行多个MySQL实例时，这个参数是有效的。参照shutdown_script参数查看更多详细信息。
+1.20    ssh_user
+MHA Manager 和 MHA Node连接MySQL服务器时使用的操作系统用户名。使用该参数有多种目的：比如远程执行命令（Manager->MySQL），从latest slave上复制差异relay logs到其他slaves（MySQL->MySQL），等等。
+该用户在MySQL binary/relay log 文件和relay_log.info 文件上必须至少有read权限。在日志目录（每台MySQL服务器上的remote_workdir）必须有write权限。
+该用户必须能够无交互式的连接到服务器。一般推荐使用SSH公共密钥验证。默认情况下ssh_user是manager所在机器上的当前操作系统用户。
+1.21   remote_workdir
+每个MHA Node（运行在MySQL服务器上）产生日志文件的路径。如果该目录不存在，MHA会自动创建。如果没有赋予足够的权限，MHA Node会终止。MHA Manager或MHA Node都不会检测磁盘空间，所以应该注意这一点。默认情况下，remote_workdir是"/var/tmp"。
+1.22   master_binlog_dir
+master机器上MySQL产生二进制日志的目录。当deadmaster可以通过SSH连接的时候该参数是有效的，为了读取复制必需的二进制日志events。如果MySQL挂掉之后没有方法自动检测二进制日志目录，所以该参数是必需的。
+默认情况下，master_binlog_dir 是 "/var/lib/mysql,/var/log/mysql"。/var/lib/mysql是许多MySQL版本的默认binlog输出目录，/var/log/mysql是Ubuntu上MySQL包的默认binlog输出目录。可以设置多个目录，这些目录用逗号隔开(i.e /data1,/data2,…)。
+1.23    log_level
+MHA Manager打印出来的日志的临界值。默认情况下是info，还可以设置 debug/info/warning/error。
+1.24   manager_workdir
+MHA Manager产生相关状态的文件目录。如果没有设置，会使用/var/tmp。
+1.25    manager_log
+MHA Manager产生日志的完整目录。如果没有设置，MHAManager会输出到STDOUT/STDERR。当执行手动切换时（交互式故障切换），MHAManager会忽略manager_log，并且总是输出到STDOUT/STDERR。
+1.26   check_repl_delay
+默认情况下，如果一个slave落后master超过100MB的relay logs（相当于会应用超过100MB的relay logs），MHA就不会选择该slave作为new master，因为恢复过程会花费太长时间。通过设置check_repl_delay=0，在选择new master的时候MHA就会忽略复制延迟。如果在某个指定的host上设置了candidate_master=1，并且想要确保该host成为new master，那这个选项是有用的。
+1.27   check_repl_filter
+默认情况下，如果master和salves有不同的binary log/replication过滤规则，MHA会打印错误，并且不会开始监控或者故障切换。这是为了防止在恢复的时候出现不期望的错误，比如"Table not exists"。如果你可以100%的确保设置不同的过滤规则不会导致恢复出现问题，可以设置check_repl_filter = 0。在应用差异relaylogs的时候MHA不会检查过滤规则，所以如果设置check_repl_filter = 0有可能会出现"Table not exists" （或者其他）错误。设置这个参数的时候应该谨慎一点。
+1.28   latest_priority
+默认情况下，latest slave（接受到最新的binlog events的slave）会被优先选为new master。如果想控制优先顺序（i.e. host2->host3->host4），可以设置latest_priority=0。
+1.29   multi_tier_slave
+从MHA Manager 0.52版本开始，开始支持多主复制配置。默认情况下，是不允许在MHA配置文件中设置3层或者更多层的replication hosts。比如，假设host2从host1复制，host3从host2上复制。默认情况下是不允许在配置文件中配置host1，host2，host3的，因为这是一个三层的复制，MHA Manager会报错停止。通过设置multi_tier_slave ，MHA Manager 不会因为三层复制终止，但是会忽略第三层的hosts。如果host1（master）宕机，host2就会被选为新的master，host3还是继续从host2复制。
+1.30   ping_interval
+这个参数表示MHA Manager多久ping一次master（执行sql语句）。丢失三次连接后，MHA Manager决定MySQL master挂掉。默认是3秒。如果因为连接太多或者验证错误导致MHA Manager连接失败，不会记录到ping失败的次数里面。
+1.31    ping_type
+（从0.53开始支持）默认情况下，MHA建立了一个到master的持久连接，通过执行"SELECT 1" （ping_type=SELECT）来验证master的可用性。但是在一些情况下，每次都断开连接再重新连接时更好的，因为更严格，而且可以更快检测到TCP连接层的失败。通过设置ping_type=CONNECT可以实现这个。从0.56开始，添加了ping_type=INSERT。
+1.32   secondary_check_script
+通常来说，非常推荐使用两个货更多的网络线路检测MySQL master服务器的可用性。默认情况下，MHA Manager只是用单个线路检测：从Manager到Master。但是这个并不推荐。MHA通过调用一个额外的脚本（通过secondary_check_script参数指定），实际上可以有两个或更多的检查线路。配置示例：
+secondary_check_script =masterha_secondary_check -s remote_host1 -s remote_host2
+masterha_secondary_check在MHA Manager包中已经包含。内置的masterha_secondary_check 脚本在大多数情况下都是比较好的，这里也可以调用其他任意脚本。
+在上述示例中，MHA Manager通过Manager-(A)->remote_host1-(B)->master_host和 Manager-(A)->remote_host2-(B)->master_host检测MySQL master服务器。如果在两个线路中都会出现：connection A是成功的，但是B是不成功的，则masterha_secondary_check会退出（返回0），并且MHAManager决定MySQL master真的挂掉了，然后会进行failover。如果A是不成功的，masterha_secondary_check会退出（返回2），并且MHAManager猜测发生网络问题，不会进行failover。如果B是成功的，masterha_secondary_check会退出（返回3），并且MHAManager 推断MySQL master是存活的，不会进行failover。
+一般来讲，remote_host1 和 remote_host2 应该位于不同的网段（从MHA Manager和MySQL服务器）。
+MHA 调用secondary_check_script参数定义的脚本，自动传一下参数(所以不需要再配置文件中设置以下参数)。 masterha_secondary_check 在许多情形下是适宜的，但是如果你需要更多功能可以自己写一些网络监测脚本。
+--user=(远程hosts的SSH用户名。ssh_user 参数的值会被传入)
+--master_host=(master的hostname)
+--master_ip=(master的ip 地址)
+--master_port=(master的端口号)
+内置的masterha_secondary_check 脚本依赖于IO::Socket::INETPerl包，从Perl v5.6.0开始已经默认包含。masterha_secondary_check 脚本也是通过SSH连接到远程服务器，所以也需要SSH公共密钥验证。还有，masterha_secondary_check 脚本尝试从远程服务器（set by -s）到MySQLmaster建立TCP连接。my.cnf中设置的max_connections参数不会影响，如果TCP连接成功，master上的aborted_connects值会加1。
+1.33   master_ip_failover_script
+在常见的HA环境中，许多情形下会在master上分配一个虚拟IP地址。如果master挂掉，HA软件（比如：Pacemaker）会接管虚拟IP到备机上。
+另一个常见的处理方式是创建一个全局性的目录数据库，该数据库包含应用名称和读写IP地址之间的映射（i.e. {app1_master1, 192.168.0.1}, {app_master2, 192.168.0.2}, …）。这种情形下，在当前master挂掉之后需要更新目录数据库。
+两者方式各有优势和劣势。MHA不强制使用其中一种方式，允许用户使用任何一种IP地址故障切换的解决办法，master_ip_failover_script参数被用于解决这个。 换句话说，需要编写一个脚本使应用透明的连接到new master，必须定义在master_ip_failover_script 参数中。实例如下：
+master_ip_failover_script= /usr/local/sample/bin/master_ip_failover
+示例及保本位于（MHA Manager包）/samples/scripts/master_ip_failover。 示例脚本在MHA Managertarball和GitHup分支中包含。
+MHA Manager 调用master_ip_failover_script 三次。第一次在进入master监控之前（脚本有效性检查），第二次是在调用shutdown_script脚本之前，第三次是在应用差异relay log到new master之后。MHA Manager 传入以下参数（不需要在配置文件中配置）。
+Checking 阶段
+--command=status
+--ssh_user=(当前master的ssh username)
+--orig_master_host=(当前master 的 hostname)
+--orig_master_ip=(当前 master的 ip地址)
+--orig_master_port=(当前master的端口号)
+当前master  shutdown阶段
+--command=stop 或 stopssh
+--ssh_user=(dead master的 ssh username，如果可以通过SSH访问)
+--orig_master_host=(current(dead) master的 hostname)
+--orig_master_ip=(current(dead) master的 ip 地址)
+--orig_master_port=(current(dead) master的 端口号)
+New master 激活阶段
+--command=start
+--ssh_user=(new master的 ssh username)
+--orig_master_host=(dead master的 hostname)
+--orig_master_ip=(dead master的 ip 地址)
+--orig_master_port=(dead master的端口号)
+--new_master_host=(new master的 hostname)
+--new_master_ip=(new master的 ip 地址)
+--new_master_port(new master的端口号)
+--new_master_user=(new master的用户)
+--new_master_password(new master的密码)
+如果在master上使用了一个共享的虚拟IP地址，只要在之后shutdown_script中关掉了机器，在shutdown阶段可能不需要做任何事。在newmaster激活阶段，可以在new master上指定虚拟IP。
+如果使用了目录数据库的方式，在master shutdown阶段需要delete或者update dead master的记录。在new master激活阶段，可以insert/update new master的记录。还有，可以做任何你需要做的事，使得应用可以写入new master。比如，SET GLOBAL read_only=0，创建拥有write权限的数据库用户，等等。
+MHA Manager 检查该脚本退出的code（return code）。如果脚本返回的code为0或者10，MHA Manager 继续操作。 如果脚本返回的code不是0或者10，MHA Manager终止，不会继续故障切换。参数默认为空。
+1.34   master_ip_online_change_script
+类似于master_ip_failover_script 参数，但是该参数不是用于master故障切换的命令，用于master在线切换命令（masterha_master_switch--master_state=alive）。传入以下参数。
+Current master阻塞写入阶段
+--command=stop 或 stopssh
+--orig_master_host=(current master的 hostname)
+--orig_master_ip=(current master的 ip 地址)
+--orig_master_port=(current master的端口号)
+--orig_master_user=(current master的用户)
+--orig_master_password=(current master的密码)
+--orig_master_ssh_user=(从0.56支持, current master的 ssh user)
+--orig_master_is_new_slave=(从0.56支持, 表示原来的master是否会成为新的slave)
+New master 赋write权限阶段
+--command=start
+--orig_master_host=(orig master的hostname)
+--orig_master_ip=(orig master的 ip 地址)
+--orig_master_port=(orig master的端口号)
+--new_master_host=(new master的 hostname)
+--new_master_ip=(new master的ip 地址)
+--new_master_port(new master的端口号)
+--new_master_user=(new master的用户)
+--new_master_password=(new master的密码)
+--new_master_ssh_user=(从0.56支持, new master的 ssh user)
+当前master阻塞写阶段，MHA 在当前master上执行 FLUSH TABLES WITH READ LOCK 。在new master赋wirte权限阶段，可以做和master_ip_failover_script一样的事情。比如，创建有权限的用户，执行SET GLOBAL read_only=0，更新目录数据库，等等。如果脚本返回的code不是0或10，则MHA Manager 会终止，并且不会继续master切换。
+默认参数为空。
+示例脚本位于（MHA Manager包）/samples/scripts/master_ip_online_change。
+1.35   shutdown_script
+为了防止master重启服务，需要强制关闭掉master服务器。对于防止脑裂很重要。示例如下：
+shutdown_script= /usr/local/sample/bin/power_manager
+示例脚本位于（MHA Manager包）/samples/scripts/power_manager。示例脚本在MHA Managertarball和GitHup分支中包含。
+调用shutdown_script之前， MHA Manager辉县检查MySQL master能否通过SSH访问。如果SSH可达(OS 是可用的，但是mysqld不运行了，i.e. 数据文件损坏了)， MHA Manager 传入以下参数。
+--command=stopssh
+--ssh_user=(用于连接master的ssh username)
+--host=(master的 hostname)
+--ip=(master的ip 地址)
+--port=(master的端口号)
+--pid_file=(master的 pid 文件)
+如果master通过SSH不可达，MHA Manager传入以下参数。
+--command=stop
+--host=(master的 hostname)
+--ip=(master的 ip 地址)
+示例脚本工作方式如下：如果传入--command=stopssh ，该脚本通过ssh连接master然后kill掉所有的mysqld 和mysqld_safe进程。如果也传入了 --pid_file ，或者kill掉所有mysqld和mysqld_safe进程失败的时候，该脚本只会kill掉指定的进程。在master上运行多个实例时该参数是有用的。如果command=stopssh成功，则该脚本返回code 10。如果返回code为10， MHA Manager 之后会连接到master，并且保存必需的二进制日志。如果通过SSH连接master失败，或者传入--command=stop，则该脚本会尝试关闭机器。关机命令依赖于 H/W。对于HP(iLO)，通常使用ipmitool 或 SSL 。对于Dell(DRAC)，通常使用dracadm 。如果关机成功，该脚本会返回code 0。否则会返回code 1。如果返回的code为0，则MHA Manager开始故障切换。如果返回的code不是0 或 10， MHA Manager 终止故障切换。默认该参数为空。
+还有，MHA Manager在开始监控的时候调用shutdown_script。以下参数在这个时候传入。可以在这一步进行设置。控制power依赖于H/W，所以强烈推荐在这一步检查power status。如果一些地方出错，在开始监控之前就可以意识到。
+--command=status
+--host=(master的 hostname)
+--ip=(master的 ip 地址)
+1.36   report_script
+failover完成或者因为错误结束的时候可能需要发送报告（i.e. e-mail）。report_script 用于这个目的。MHA Manager传入以下参数。
+--orig_master_host=(dead master的 hostname)
+--new_master_host=(new master的 hostname)
+--new_slave_hosts=(new slaves 的 hostnames，通过逗号分隔)
+--subject=(mail subject)
+--body=(body)
+参数默认为空。
+示例脚本位于(MHA Manager 包)/samples/scripts/send_report。示例脚本在MHA Managertarball 和 GitHub分支中包含。
+1.37   init_conf_load_script
+当不想在配置文件中设置纯文本（i.e. password和repl_password）的时候可以使用该脚本。通过从该脚本返回 "name=value" 对，可以覆盖全局配置文件的参数。示例如下。
+  #!/usr/bin/perl
+  print "password=$ROOT_PASS\n";
+  print "repl_password=$REPL_PASS\n";
+参数默认为空。
